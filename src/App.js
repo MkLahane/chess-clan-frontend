@@ -1,23 +1,27 @@
-import logo from './logo.svg';
-import './App.css';
+import React, { useState, useEffect } from "react";
+import { setAuthToken } from "./contexts/AuthToken";
+import Navbar from "./components/Navbar";
+import "./App.css";
 
 function App() {
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetch("http://localhost:8000/refresh_token", {
+      method: "POST",
+      credentials: "include",
+    }).then(async (res) => {
+      const data = await res.json();
+      setAuthToken(data.accessToken);
+      setLoading(false);
+      console.log(data);
+    });
+  }, []);
+  if (loading) {
+    return <div>loading...</div>;
+  }
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+      <Navbar />
     </div>
   );
 }

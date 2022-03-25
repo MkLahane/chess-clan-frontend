@@ -1,17 +1,101 @@
-import React from 'react';
-import ReactDOM from 'react-dom';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
+import React from "react";
+import ReactDOM from "react-dom";
+import { ApolloProvider } from "@apollo/react-hooks";
+import { getAuthToken, setAuthToken } from "./contexts/AuthToken";
+import { ApolloClient } from "apollo-client";
+import { InMemoryCache } from "apollo-cache-inmemory";
+import { HttpLink } from "apollo-link-http";
+import { onError } from "apollo-link-error";
+import { ApolloLink, Observable } from "apollo-link";
+import { TokenRefreshLink } from "apollo-link-token-refresh";
+import jwtDecode from "jwt-decode";
+import "./index.css";
+import App from "./App";
+
+const cache = new InMemoryCache({});
+const requestLink = new ApolloLink(
+  (operation, forward) =>
+    new Observable((observer) => {
+      let handle;
+      Promise.resolve(operation)
+        .then((operation) => {
+          const accessToken = getAuthToken();
+          if (accessToken) {
+            operation.setContext({
+              headers: {
+                authorization: `bearer ${accessToken}`,
+              },
+            });
+          }
+        })
+        .then(() => {
+          handle = forward(operation).subscribe({
+            next: observer.next.bind(observer),
+            error: observer.error.bind(observer),
+            complete: observer.complete.bind(observer),
+          });
+        })
+        .catch(observer.error.bind(observer));
+
+      return () => {
+        if (handle) handle.unsubscribe();
+      };
+    })
+);
+const client = new ApolloClient({
+  link: ApolloLink.from([
+    new TokenRefreshLink({
+      accessTokenField: "accessToken",
+      isTokenValidOrUndefined: () => {
+        const accessToken = getAuthToken();
+
+        if (!accessToken) {
+          return true;
+        }
+
+        try {
+          const { exp } = jwtDecode(accessToken);
+          if (Date.now() >= exp * 1000) {
+            return false;
+          } else {
+            return true;
+          }
+        } catch {
+          return false;
+        }
+      },
+      fetchAccessToken: () => {
+        return fetch("http://localhost:8000/refresh_token", {
+          method: "POST",
+          credentials: "include",
+        });
+      },
+      handleFetch: (accessToken) => {
+        setAuthToken(accessToken);
+      },
+      handleError: (err) => {
+        console.warn("Your refresh token is invalid. Try to relogin");
+        console.error(err);
+      },
+    }),
+    onError(({ graphQLErrors, networkError }) => {
+      console.log(graphQLErrors);
+      console.log(networkError);
+    }),
+    requestLink,
+    new HttpLink({
+      uri: "http://localhost:8000/graphql",
+      credentials: "include",
+    }),
+  ]),
+  cache,
+});
 
 ReactDOM.render(
   <React.StrictMode>
-    <App />
+    <ApolloProvider client={client}>
+      <App />
+    </ApolloProvider>
   </React.StrictMode>,
-  document.getElementById('root')
+  document.getElementById("root")
 );
-
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
